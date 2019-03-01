@@ -12,17 +12,20 @@ const deployManagers = async function(deployer, owner) {
     const oceanToken = await OceanToken.new({ from: deployer })
     await oceanToken.initialize(owner, owner)
 
-    const didRegistryLibrary = await DIDRegistryLibrary.new({ from: deployer })
+    const didRegistryLibrary = await DIDRegistryLibrary.new()
     await DIDRegistry.link('DIDRegistryLibrary', didRegistryLibrary.address)
-    const didRegistry = await DIDRegistry.new({ from: deployer })
-    await didRegistry.initialize(owner, { from: deployer })
+    const didRegistry = await DIDRegistry.new()
+    await didRegistry.initialize(owner)
 
     const epochLibrary = await EpochLibrary.new({ from: deployer })
     await ConditionStoreManager.link('EpochLibrary', epochLibrary.address)
     const conditionStoreManager = await ConditionStoreManager.new({ from: deployer })
 
     const templateStoreManager = await TemplateStoreManager.new({ from: deployer })
-    await templateStoreManager.initialize(owner, { from: deployer })
+    await templateStoreManager.initialize(
+        owner,
+        { from: deployer }
+    )
 
     const agreementStoreLibrary = await AgreementStoreLibrary.new({ from: deployer })
     await AgreementStoreManager.link('AgreementStoreLibrary', agreementStoreLibrary.address)
