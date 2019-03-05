@@ -2,7 +2,7 @@ pragma solidity 0.5.3;
 
 import './DIDRegistryLibrary.sol';
 import 'openzeppelin-eth/contracts/ownership/Ownable.sol';
-
+import 'openzeppelin-eth/contracts/math/SafeMath.sol';
 /**
  * @title DID Registry
  * @author Ocean Protocol Team
@@ -11,7 +11,7 @@ import 'openzeppelin-eth/contracts/ownership/Ownable.sol';
  *      https://github.com/oceanprotocol/OEPs/tree/master/7#registry
  */
 contract DIDRegistry is Ownable {
-
+    using SafeMath for uint256;
     /**
      * @dev The DIDRegistry Library takes care of the basic storage functions.
      */
@@ -21,6 +21,28 @@ contract DIDRegistry is Ownable {
      * @dev state storage for the DID registry
      */
     DIDRegistryLibrary.DIDRegisterList internal didRegisterList;
+
+    // registry of verifiers for decentralized data availability proof
+    mapping (address => bool) internal verifiers;
+    uint256 internal verifierCount;
+    uint256 internal _requiredSignatures;
+
+    struct challenge {
+        address  owner;
+        uint256  confirms;
+        bool     finished;
+        mapping (address => bool) voted;
+    }
+    mapping (bytes32 => challenge) did2challenge;
+
+    // modifier
+    modifier onlyVerifier() {
+        require(
+            verifiers[msg.sender] == true,
+            'Invalid verifier'
+        );
+        _;
+    }
 
     /**
      * @dev This implementation does not store _value on-chain,
@@ -124,5 +146,118 @@ contract DIDRegistry is Ownable {
         returns (uint size)
     {
         return didRegisterList.didRegisterIds.length;
+    }
+
+    /**
+     * @return the checksum of the DID registry.
+     */
+     function getDIDChecksum(bytes32 _did)
+         public view
+         returns(bytes32 checksum)
+     {
+         return didRegisterList.didRegisters[_did].lastChecksum;
+     }
+
+    /************  Verification Functions ************/
+
+    /**
+     * @dev owner add a new verifier
+     */
+     event VerifierAdded(address indexed _verifier);
+     function addVerifier(address _verifier)
+     external onlyOwner
+     {
+        require(_verifier != address(0));
+        require(verifiers[_verifier] == false);
+        verifiers[_verifier] = true;
+        verifierCount = verifierCount.add(1);
+        emit VerifierAdded(_verifier);
+    }
+
+    /**
+     * @dev owner removes a new verifier
+     */
+     event VerifierRemoved(address indexed _verifier);
+     function removeVerifier(address _verifier)
+     external onlyOwner
+     {
+        require(_verifier != address(0));
+        require(verifiers[_verifier] == true);
+        verifiers[_verifier] = false;
+        verifierCount = verifierCount.sub(1);
+        emit VerifierRemoved(_verifier);
+    }
+
+    /**
+     * @dev owner set required Signatures
+     */
+    event RequiredSignaturesChanged(uint256 _requiredSignatures);
+    function setRequiredSignatures(uint256 requiredSignatures)
+    external onlyOwner
+    {
+        require(verifierCount >= requiredSignatures);
+        require(requiredSignatures != 0);
+        _requiredSignatures = requiredSignatures;
+        emit RequiredSignaturesChanged(_requiredSignatures);
+    }
+
+    /**
+     * @dev create a verification challenge for dataset
+     */
+     event challengeCreated(bytes32 indexed _did);
+     function createChallenge(bytes32 _did)
+     external onlyOwner
+     {
+         require(didRegisterList.didRegisters[_did].owner != address(0), 'did is not valid');
+         require(did2challenge[_did].owner == address(0) || did2challenge[_did].finished == true, 'allow to challenge');
+         did2challenge[_did] = challenge({
+             owner: msg.sender,
+             confirms : 0,
+             finished : false
+             });
+         emit challengeCreated(_did);
+     }
+
+     event signatureSubmitted(bytes32 indexed _did);
+     event signatureConfirmed(bytes32 indexed _did);
+     event challengeResolved(bytes32 indexed _did);
+
+     function submitSignature(uint8 v, bytes32 r, bytes32 s, bytes32 checksum, bytes32 msgHash, bytes32 _did)
+     public onlyVerifier
+     {
+         // ensure that `signature` is really `message` signed by `msg.sender`
+         require(did2challenge[_did].owner != address(0) && did2challenge[_did].finished == false, 'challenge allows submission');
+         require(msg.sender == ecrecover(msgHash, v, r, s));
+
+         // log the signature
+         did2challenge[_did].voted[msg.sender] = true;
+         // verify checksum against on-chain record
+         if(checksum == getDIDChecksum(_did)){
+            did2challenge[_did].confirms = did2challenge[_did].confirms.add(1);
+            emit signatureConfirmed(_did);
+            // check whether enough signatures collected or not
+            if(did2challenge[_did].confirms >= _requiredSignatures){
+                did2challenge[_did].finished = true;
+                emit challengeResolved(_did);
+            }
+         }
+
+         emit signatureSubmitted(_did);
+     }
+
+    /************  View Functions ************/
+
+    /**
+     * @dev query the state of challenge
+     */
+    function isChallengeResolved(bytes32 _did) public view returns(bool) {
+        return did2challenge[_did].finished;
+    }
+
+    /**
+     * @dev query the requiredSignatures
+     */
+    function requiredSignatures() public view returns(uint256) {
+        return _requiredSignatures;
     }
 }

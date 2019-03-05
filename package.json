@@ -81,5 +81,9 @@
     "websocket": "^1.0.28",
     "zos": "~2.2.1",
     "zos-lib": "~2.2.1"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.414.0",
+    "ethers": "^4.0.26"
   }
 }
